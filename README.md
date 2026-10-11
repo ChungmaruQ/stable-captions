@@ -2,7 +2,7 @@
 
 한국어·영어 발표를 읽기 쉬운 자막으로 표시하는 Windows/macOS 앱입니다. 이미 표시한 문구를 반복 수정하지 않고, 안정된 의미 단위부터 보여 줍니다.
 
-**개발자의 Azure 키는 포함되어 있지 않습니다. 각 사용자가 자신의 Azure 계정·리소스·키를 준비해야 합니다.** 소스 빌드와 오프라인 검증에는 Azure 계정이 필요하지 않습니다. 실제 음성 인식·번역·화면 분석은 사용자 계정으로 과금됩니다.
+**개발자의 Azure 키는 포함되어 있지 않습니다. 각 사용자의 Azure 계정·리소스·키로 동작합니다. 아무것도 준비되지 않았다면 아래 AI 요청문으로 계정 준비부터 에이전트에게 맡길 수 있습니다.** 소스 빌드와 오프라인 검증에는 Azure 계정이 필요하지 않습니다. 실제 음성 인식·번역·화면 분석은 사용자 계정으로 과금됩니다.
 
 | 앱 | 입력 | 출력 |
 |---|---|---|
@@ -14,7 +14,7 @@
 ## 처음 사용하는 분
 
 1. [Releases](https://github.com/ChungmaruQ/stable-captions/releases)에서 필요한 Windows ZIP을 받아 압축을 풉니다.
-2. [Azure 직접 설정 안내](docs/AZURE_SETUP.md)에 따라 본인 계정으로 Speech와 모델 배포를 준비합니다. Vision은 선택 사항입니다.
+2. Azure가 처음이면 아래 **AI에게 처음부터 맡기기** 요청문을 사용하세요. 에이전트가 계정 준비부터 승인된 서비스 생성·연결까지 진행합니다. 직접 설정하려면 [Azure 안내](docs/AZURE_SETUP.md)를 참고하세요.
 3. EXE를 실행하여 본인 설정을 입력하고 **내 Azure 설정 저장**을 누릅니다.
 4. [실행 순서와 문제 해결](docs/QUICKSTART.md)을 따라 짧은 한국어·영어 발화로 확인합니다.
 
@@ -24,7 +24,9 @@ EXE는 Windows x64용이며 코드 서명은 되어 있지 않습니다. Mac에�
 
 Claude/Opus, GPT Astra/Sol 등 코딩 에이전트에 아래 문장을 붙여 넣으세요. 특정 모델에만 의존하는 도구나 숨겨진 개인 파일은 필요하지 않습니다.
 
-> https://github.com/ChungmaruQ/stable-captions 를 클론하고 AGENTS.md와 docs/AI_BOOTSTRAP.md를 읽어 주세요. 내 환경을 확인하고 Windows용 두 EXE를 빌드·오프라인 검증해 주세요. Azure가 처음이므로 docs/AZURE_SETUP.md를 따라 내 구독에서 필요한 리소스와 모델 배포를 준비하도록 안내해 주세요. 유료 리소스 생성은 비용과 설정을 먼저 설명하고 내 확인을 받으세요. API 키를 채팅, 코드, Git, 실행파일에 넣지 말고 내 PC의 별도 설정으로 저장해 주세요. 실제 실행에 필요한 내 작업과 검증 결과를 구분해서 알려 주세요.
+> https://github.com/ChungmaruQ/stable-captions 를 클론하고 AGENTS.md, docs/AZURE_AGENT_RUNBOOK.md, docs/AZURE_SETUP.md, docs/BUILD_AND_TEST.md를 읽어 주세요. 나는 초보자이며 Azure 계정·구독·서비스가 하나도 준비되어 있지 않을 수 있습니다. 환경 확인부터 계정/구독 준비 안내, 사용 가능한 지역·모델·쿼터와 비용 확인, 필요한 Azure 리소스 생성, 개인 설정 저장, 두 Windows EXE 빌드, 실제 자막 시험까지 A부터 Z까지 맡아 주세요. 설명이나 문서 링크만 주고 끝내지 말고, 가능한 작업은 CLI/API/내가 허용한 브라우저로 직접 수행하세요. 로그인·MFA·결제 동의 등 내가 해야 하는 순간에는 지금 할 행동 한 가지를 알려 주고, 내가 마치면 다음 단계부터 계속하세요. 유료 작업은 실제 리소스/SKU/지역/모델·요금과 짧은 연결 시험 계획을 제시해 내 확인을 받은 뒤 진행하고, 같은 승인 범위는 반복해서 묻지 마세요. 키는 채팅·코드·Git·EXE에 넣지 말고 내 PC의 개인 설정 파일로 연결하세요. Windows 작업은 바탕화면 StableCaptions-Workspace/Project_Public에서 하고 기존 자료를 보존하세요. Windows가 없으면 내 GitHub Fork의 Actions로 빌드하세요. 마지막에는 서비스 생성·인증·마이크 자막·화면 분석의 검증 결과, EXE 위치와 남은 내 행동을 구분해 알려 주세요.
+
+에이전트는 [A부터 Z까지 실행 절차](docs/AZURE_AGENT_RUNBOOK.md)를 따릅니다. 로그인·MFA·결제 동의는 사용자가 직접 처리하고, 승인된 리소스 생성과 앱 연결은 가능한 도구로 에이전트가 수행합니다.
 
 ## Windows에서 직접 빌드
 
@@ -49,6 +51,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 
 ## 문서
 
+- [에이전트의 Azure 전체 설정 절차](docs/AZURE_AGENT_RUNBOOK.md)
 - [Azure 서비스 생성·연결](docs/AZURE_SETUP.md)
 - [실행 및 문제 해결](docs/QUICKSTART.md)
 - [빌드·테스트·Mac 실행](docs/BUILD_AND_TEST.md)
