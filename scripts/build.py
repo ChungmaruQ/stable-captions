@@ -37,9 +37,12 @@ def build(variant):
         report_dir.mkdir(parents=True, exist_ok=True)
         report_path = report_dir/'layout-validation.json'
         report_path.unlink(missing_ok=True)
-        run([executable, '--verify-layout', report_dir], cwd=source, env=env, timeout=120)
+        result = subprocess.run([str(executable), '--verify-layout', str(report_dir)], cwd=source, env=env, timeout=120)
+        if not report_path.exists():
+            raise RuntimeError(f'Packaged app did not produce a validation report (exit {result.returncode})')
         report = json.loads(report_path.read_text(encoding='utf-8'))
-        if not report['pass'] or not report['packaged']:
+        print(json.dumps(report, ensure_ascii=True), flush=True)
+        if result.returncode or not report['pass'] or not report['packaged']:
             raise RuntimeError('Packaged layout validation failed')
     if sys.platform == 'win32' and executable.read_bytes()[:2] != b'MZ':
         raise RuntimeError('Output is not a Windows executable')
