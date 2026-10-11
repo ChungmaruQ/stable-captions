@@ -11,6 +11,10 @@
 7. 슬라이드 분석이 필요하면 맥락 설정의 `화면 분석 시작`도 누릅니다. 설정 창을 최소화해야 발표 화면 캡처가 진행됩니다. 선택한 화면 전체가 모델로 전달됩니다.
 8. 종료할 때 화면 분석 중지 → 번역 중지 순서로 누르거나 앱을 종료합니다. 번역만 중지하면 별도로 켠 화면 분석이 계속될 수 있습니다.
 
+## Windows 필수 구성요소
+
+새 PC는 Microsoft의 [Visual C++ Redistributable x64](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)를 설치해야 할 수 있습니다. [Speech SDK 설치 안내](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/quickstarts/setup-platform)를 따르세요. 앱 실행에 Python 설치는 필요 없지만, EXE를 직접 빌드할 때는 Python이 필요합니다. Windows 개인정보 설정에서 데스크톱 앱의 마이크 접근도 허용하세요.
+
 ## 짧은 실제 확인
 
 - 한국어: “이 물질은 효과가 있을 수 있지만 아직 입증되지 않았습니다.”

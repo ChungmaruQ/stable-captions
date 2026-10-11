@@ -44,12 +44,19 @@ def run(destination):
     canvas.show();w.overlay.show();enforce(w.overlay)
     def finish():
         image=w.overlay.grab().toImage();transparent=sum(image.pixelColor(x,y).alpha()==0 for x in range(0,image.width(),3) for y in range(0,image.height(),3));total=len(range(0,image.width(),3))*len(range(0,image.height(),3))
-        checks['background_absent']=transparent/total>.60
+        # Font density varies by display size. Compare the same glyphs with/without
+        # the filled background instead of requiring an arbitrary empty-area ratio.
+        w.caption_background.setCurrentIndex(2)
+        filled=w.overlay.grab().toImage()
+        removed=sum(image.pixelColor(x,y).alpha()==0 and filled.pixelColor(x,y).alpha()>0
+                    for x in range(0,image.width(),3) for y in range(0,image.height(),3))
+        w.caption_background.setCurrentIndex(0)
+        checks['background_absent']=removed>50
         native=state(w.overlay);checks['native_topmost']=(native.get('level',0)>0 and native.get('click_through',False)) if sys.platform=='darwin' else bool(w.overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         w.overlay.grab().save(str(out/'caption.png'));screen.grabWindow(0).save(str(out/'presentation.png'))
         w.show();w.grab().save(str(out/'settings.png'));w.hide()
         w.overlay.reset_text();checks['clear']=w.overlay.label.text()==''
-        report={'pass':all(checks.values()),'packaged':bool(getattr(sys,'frozen',False)),'checks':checks,'native':native,'screen':rect.getRect(),'geometry':w.overlay.geometry().getRect(),'transparent_fraction':round(transparent/total,3),'source':'offline layout validation; no microphone or cloud API calls'}
+        report={'pass':all(checks.values()),'packaged':bool(getattr(sys,'frozen',False)),'checks':checks,'native':native,'screen':rect.getRect(),'geometry':w.overlay.geometry().getRect(),'transparent_fraction':round(transparent/total,3),'background_removed_samples':removed,'source':'offline layout validation; no microphone or cloud API calls'}
         (out/'layout-validation.json').write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)
         w.close();canvas.close();app.exit(0 if report['pass'] else 1)
     QTimer.singleShot(1000,finish)
