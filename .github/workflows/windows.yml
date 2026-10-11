@@ -32,6 +32,10 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Test Azure settings import with a fake CLI
+        shell: pwsh
+        run: |
+          & "$env:CAPTION_PROJECT/tests/test-azure-import.ps1"
       - name: Install dependencies and build both apps without Azure keys
         shell: pwsh
         run: |

@@ -18,9 +18,9 @@ function Read-AzureJson([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw 'Azure lookup failed. Check login, subscription, resource names and permissions.' }
     return ($raw -join "`n" | ConvertFrom-Json)
 }
-$speech = Read-AzureJson @('cognitiveservices','account','show','-g',$SpeechResourceGroup,'-n',$SpeechName)
-$model = Read-AzureJson @('cognitiveservices','account','show','-g',$ModelResourceGroup,'-n',$ModelName)
-$deployments = Read-AzureJson @('cognitiveservices','account','deployment','list','-g',$ModelResourceGroup,'-n',$ModelName)
+$speech = Read-AzureJson -Arguments @('cognitiveservices','account','show','-g',$SpeechResourceGroup,'-n',$SpeechName)
+$model = Read-AzureJson -Arguments @('cognitiveservices','account','show','-g',$ModelResourceGroup,'-n',$ModelName)
+$deployments = Read-AzureJson -Arguments @('cognitiveservices','account','deployment','list','-g',$ModelResourceGroup,'-n',$ModelName)
 $selected = @($deployments | Where-Object { $_.name -eq $Deployment })
 if ($selected.Count -ne 1) { throw 'The specified model deployment was not found. Deploy a model first.' }
 if ($selected[0].properties.model.name -like 'gpt-5*' -and $Deployment -notlike 'gpt-5*') {
@@ -33,7 +33,7 @@ $config = @{
 }
 if ($VisionName) {
     if (-not $VisionResourceGroup) { throw 'VisionResourceGroup is required with VisionName.' }
-    $vision = Read-AzureJson @('cognitiveservices','account','show','-g',$VisionResourceGroup,'-n',$VisionName)
+    $vision = Read-AzureJson -Arguments @('cognitiveservices','account','show','-g',$VisionResourceGroup,'-n',$VisionName)
     $config.vision.endpoint = $vision.properties.endpoint
 }
 $destination = Join-Path $env:LOCALAPPDATA 'StableCaptions/config.json'
@@ -41,10 +41,10 @@ if ($env:STABLE_CAPTIONS_CONFIG) { $destination = $env:STABLE_CAPTIONS_CONFIG }
 Write-Host "Save this account's Speech, model and optional Vision keys to: $destination"
 Write-Host 'This is a private plaintext file. Do not upload or share it. Existing saved settings will be replaced.'
 if ((Read-Host 'Type SAVE to continue') -cne 'SAVE') { Write-Host 'Cancelled.'; return }
-$config.speech.key = (Read-AzureJson @('cognitiveservices','account','keys','list','-g',$SpeechResourceGroup,'-n',$SpeechName)).key1
-$config.model.key = (Read-AzureJson @('cognitiveservices','account','keys','list','-g',$ModelResourceGroup,'-n',$ModelName)).key1
+$config.speech.key = (Read-AzureJson -Arguments @('cognitiveservices','account','keys','list','-g',$SpeechResourceGroup,'-n',$SpeechName)).key1
+$config.model.key = (Read-AzureJson -Arguments @('cognitiveservices','account','keys','list','-g',$ModelResourceGroup,'-n',$ModelName)).key1
 if ($VisionName) {
-    $config.vision.key = (Read-AzureJson @('cognitiveservices','account','keys','list','-g',$VisionResourceGroup,'-n',$VisionName)).key1
+    $config.vision.key = (Read-AzureJson -Arguments @('cognitiveservices','account','keys','list','-g',$VisionResourceGroup,'-n',$VisionName)).key1
 }
 $parent = Split-Path -Parent $destination
 New-Item -ItemType Directory -Force $parent | Out-Null
