@@ -13,7 +13,7 @@ class PreparationTests(unittest.TestCase):
             translate = unittest.mock.Mock(return_value='Hello')
             worker=PreparationWorker('koreacentral',translate,('synthetic',),key='test',silence_ms=500)
             result=[];worker.completed.connect(result.append);worker.run()
-            prepared.assert_called_once_with('test','koreacentral',500)
+            prepared.assert_called_once_with('test','koreacentral',500,source_language='auto')
             prepared.return_value.open.assert_called_once()
             prepared.return_value.recognizer.start_continuous_recognition_async.assert_not_called()
             self.assertEqual(result,[{'speech':True,'model':True}])
@@ -30,3 +30,22 @@ class PreparationTests(unittest.TestCase):
     def test_failed_preparation_does_not_claim_ready(self):
         w=MainWindow(warmup=False);w.prepared({'speech':True,'model':False})
         self.assertNotIn('준비 완료',w.ready_label.text());self.assertTrue(w.start_button.isEnabled());w.close()
+
+    def test_speech_handoff_does_not_wait_for_model(self):
+        with patch('startup_preparation.PreparedSpeech') as prepared:
+            prepared.return_value.open.return_value=True
+            events=[]
+            def translate(*args):
+                self.assertEqual(events,['speech']);events.append('model')
+            worker=PreparationWorker('koreacentral',translate,(),key='test')
+            worker.speech_prepared.connect(lambda _:events.append('speech'))
+            worker.completed.connect(lambda _:events.append('completed'))
+            worker.run()
+            self.assertEqual(events,['speech','model','completed'])
+            self.assertIsNone(worker.speech)
+
+    def test_late_preconnection_closed_when_recognition_is_running(self):
+        w=MainWindow(warmup=False);resource=unittest.mock.Mock()
+        w.worker=object();w.accept_prepared_speech(resource)
+        resource.close.assert_called_once();self.assertIsNone(w.prepared_speech)
+        w.worker=None;w.close()

@@ -22,7 +22,9 @@ class OpeningTests(unittest.TestCase):
  def test_no_greeting_inside_other_speech(self):
   self.assertIsNone(exact_translation('안녕하세요 저는 김교수입니다'))
   p=StablePrefix();p.observe('u','그는 안녕하세요라고 말했습니다','ko-KR',0)
-  self.assertIsNone(p.observe('u','그는 안녕하세요라고 말했습니다','ko-KR',.31))
+  result=p.observe('u','그는 안녕하세요라고 말했습니다','ko-KR',.31)
+  self.assertEqual(result[1],'그는 안녕하세요라고 말했습니다')
+  self.assertIsNone(exact_translation(result[1]))
  def test_fast_path_only_at_session_opening(self):
   p=StablePrefix();p.finish('first','처음 문장입니다.')
   p.observe('u','안녕하세요','ko-KR',0);self.assertIsNone(p.observe('u','안녕하세요','ko-KR',.31))

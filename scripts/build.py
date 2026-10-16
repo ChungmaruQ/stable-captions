@@ -29,6 +29,7 @@ def build(variant):
         command += ['--hidden-import', 'AppKit', '--hidden-import', 'objc']
     run(command, cwd=ROOT)
     executable = output/(name + ('.exe' if sys.platform == 'win32' else ''))
+    ui_report = None
     with tempfile.TemporaryDirectory() as temp:
         env = offline_env(Path(temp)/'no-credentials.json')
         # Native macOS validation checks the actual always-on-top window on the rightmost display.
@@ -44,6 +45,15 @@ def build(variant):
         print(json.dumps(report, ensure_ascii=True), flush=True)
         if result.returncode or not report['pass'] or not report['packaged']:
             raise RuntimeError('Packaged layout validation failed')
+        if sys.platform == 'win32' and variant == 'en_ko':
+            ui_dir = report_dir/'smoke'
+            ui_dir.mkdir(parents=True, exist_ok=True)
+            ui_path = ui_dir/'windows-smoke.json'
+            ui_path.unlink(missing_ok=True)
+            run([executable, '--verify-windows-smoke', ui_dir], cwd=source, env=env, timeout=60)
+            ui_report = json.loads(ui_path.read_text(encoding='utf-8'))
+            if not ui_report['pass'] or not ui_report['packaged']:
+                raise RuntimeError('Packaged idle/status validation failed')
     if sys.platform == 'win32' and executable.read_bytes()[:2] != b'MZ':
         raise RuntimeError('Output is not a Windows executable')
     digest = hashlib.sha256(executable.read_bytes()).hexdigest()
@@ -51,7 +61,7 @@ def build(variant):
                 'executable': executable.name, 'sha256': digest, 'validation': report,
                 'git_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'dependencies': subprocess.check_output([sys.executable, '-m', 'pip', 'freeze'], text=True).splitlines(),
-                'cloud_tested': False, 'credentials_bundled': False}
+                'ui_validation': ui_report, 'cloud_tested': False, 'credentials_bundled': False}
     manifest_path = output/'build-manifest.json'
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     # Never package personal settings, desktop screenshots, microphone recordings or arbitrary folders.

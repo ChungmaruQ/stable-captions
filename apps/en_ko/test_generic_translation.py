@@ -8,6 +8,7 @@ class GenericTranslationTests(unittest.TestCase):
     def setUp(self):
         self.window=MainWindow(warmup=False)
         self.context=self.window.context
+        self.context.use_correction.setChecked(False)
         self.context.timer.stop();self.context.dispatch.stop()
         self.context.active=False;self.context.text='';self.context.slide_image=b''
         self.context.use_documents.setChecked(False)
@@ -100,3 +101,20 @@ class GenericTranslationTests(unittest.TestCase):
         c.translate_unit('2','','다음 단계는 후속 연구입니다.',self.deliver)
         c.reset();c.jobs.clear();self.finish()
         self.assertEqual(len(self.calls),1);self.assertEqual(self.output,[]);self.assertFalse(c.pending)
+
+    def test_stt_gpt_failure_skips_source_and_recovers_next_caption(self):
+        c=self.context
+        c.translate_unit('1','','실험 결과가 일관되게 나왔습니다.',self.deliver)
+        token,fn,callback=self.calls[0]
+        callback((False,'network failure'));c.jobs.discard(token);c.flush()
+        self.assertEqual(self.output,[]);self.assertFalse(c.pending)
+        self.assertIn('일부 자막',self.window.status_label.text())
+        c.translate_unit('2','The next result is ready.','',self.deliver)
+        self.assertEqual(self.output,[('2','The next result is ready.','')])
+
+    def test_stt_timeout_discards_late_response_without_blocking(self):
+        c=self.context
+        c.translate_unit('1','','실험 결과가 일관되게 나왔습니다.',self.deliver)
+        c.pending[next(iter(c.pending))]['deadline']=0;c.flush()
+        self.assertEqual(self.output,[]);self.assertFalse(c.pending)
+        self.finish();self.assertEqual(self.output,[])

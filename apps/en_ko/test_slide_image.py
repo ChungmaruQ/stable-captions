@@ -23,7 +23,7 @@ class SlideImageTests(unittest.TestCase):
   self.assertEqual(parts[0]['image_url']['detail'],'high')
   self.assertIn('untrusted',payload['messages'][0]['content'])
  def test_no_ocr_still_sends_image_and_invalidation_removes_it(self):
-  w=MainWindow(warmup=False);c=w.context;c.use_documents.setChecked(False);c.use_speculation.setChecked(False);c.use_translation.setChecked(True);c.active=True
+  w=MainWindow(warmup=False);c=w.context;c.use_correction.setChecked(False);c.use_documents.setChecked(False);c.use_speculation.setChecked(False);c.use_translation.setChecked(True);c.active=True
   c.slide_image=b'current-image';c.text='';jobs=[]
   with patch.object(c,'run_job',side_effect=lambda fn,cb:jobs.append((fn,cb))),patch('context_ui.translate_with_context',return_value='Translation') as model:
    c.translate_unit('one','Look at this pear.','이 배를 보세요.',lambda *x:None);jobs[0][0]()
@@ -33,10 +33,10 @@ class SlideImageTests(unittest.TestCase):
    self.assertEqual(model.call_args.args[-1],b'')
   c.reset();w.close()
  def test_stopping_analysis_discards_pixels(self):
-  w=MainWindow(warmup=False);c=w.context;c.active=True;c.slide_image=b'old';c.toggle_active()
+  w=MainWindow(warmup=False);c=w.context;c.use_correction.setChecked(False);c.active=True;c.slide_image=b'old';c.toggle_active()
   self.assertFalse(c.active);self.assertEqual(c.slide_image,b'');w.close()
  def test_image_snapshot_does_not_change_while_request_is_queued(self):
-  w=MainWindow(warmup=False);c=w.context;c.active=True;c.use_speculation.setChecked(False);c.use_documents.setChecked(False);c.slide_image=b'first';jobs=[]
+  w=MainWindow(warmup=False);c=w.context;c.use_correction.setChecked(False);c.active=True;c.use_speculation.setChecked(False);c.use_documents.setChecked(False);c.slide_image=b'first';jobs=[]
   with patch.object(c,'run_job',side_effect=lambda fn,cb:jobs.append((fn,cb))),patch('context_ui.translate_with_context',return_value='Translation') as model:
    c.translate_unit('one','','효과가 있습니다.',lambda *x:None);c.slide_image=b'second';jobs[0][0]()
    self.assertEqual(model.call_args.args[-1],b'first')

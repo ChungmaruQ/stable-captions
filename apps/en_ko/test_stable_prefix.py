@@ -53,3 +53,34 @@ class StablePrefixTests(unittest.TestCase):
   p=StablePrefix();text='we have half of our appointment at the university of california san diego in the school of pharmacy'
   p.observe('u',text,'en-US',0);r=p.observe('u',text,'en-US',3)
   self.assertTrue(r is None or r[1].split()[-1] not in {'at','of','in','the'})
+
+ def test_frequent_callbacks_do_not_starve_stable_greeting(self):
+  p=StablePrefix();results=[]
+  for t in [0,.1,.2,.31]:
+   r=p.observe('u','안녕하세요','ko-KR',t)
+   if r:results.append(r)
+  self.assertEqual(len(results),1);self.assertEqual(results[0][1],'안녕하세요')
+
+ def test_intervening_rewrite_resets_common_prefix(self):
+  p=StablePrefix()
+  for t,text in [(0,'안녕하세요'),(.1,'안녕하십니까'),(.2,'안녕하세요'),(.31,'안녕하세요')]:
+   self.assertIsNone(p.observe('u',text,'ko-KR',t))
+  self.assertIsNotNone(p.observe('u','안녕하세요','ko-KR',.51))
+
+ def test_complete_first_statement_without_following_words(self):
+  p=StablePrefix();text='오늘 발표에 참석하신 여러분을 진심으로 환영합니다'
+  p.observe('u',text,'ko-KR',0);r=p.observe('u',text,'ko-KR',.31)
+  self.assertEqual(r[1],text)
+  self.assertEqual(p.finish('u',text+'.'),('',True,True))
+
+ def test_incomplete_first_statement_still_waits(self):
+  p=StablePrefix();text='오늘 발표에서는 이 치료가 효과가 있는지'
+  p.observe('u',text,'ko-KR',0)
+  self.assertIsNone(p.observe('u',text,'ko-KR',.31))
+
+ def test_first_english_clause_earlier_but_keeps_tail(self):
+  p=StablePrefix();text='we study natural products and their biological activities because they may offer new approaches to treatment'
+  p.observe('u',text,'en-US',0);r=p.observe('u',text,'en-US',1.3)
+  self.assertIsNotNone(r)
+  tail,early,ok=p.finish('u',text);self.assertTrue(early and ok)
+  self.assertEqual(norm(r[1]+tail),norm(text))

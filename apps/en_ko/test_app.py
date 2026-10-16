@@ -35,10 +35,10 @@ class FakeRecognizer:
     def start_continuous_recognition_async(self):
         def run():
             self.session_started.emit(None)
-            self.recognizing.emit(SimpleNamespace(result=SimpleNamespace(text='중간 발화입니다', offset=0, translations={'en':'Partial.'}, properties={})))
+            self.recognizing.emit(SimpleNamespace(result=SimpleNamespace(text='중간 발화입니다', offset=0, properties={})))
             self.recognized.emit(SimpleNamespace(result=SimpleNamespace(
-                reason=sdk.ResultReason.TranslatedSpeech, result_id='r1', offset=0, duration=10000000,
-                translations={'en':'Completed translation.'}, text='완료된 발화.',
+                reason=sdk.ResultReason.RecognizedSpeech, result_id='r1', offset=0, duration=10000000,
+                text='완료된 발화.',
                 properties={sdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult:'ko-KR'})))
             self.session_stopped.emit(None)
         return SimpleNamespace(get=run)
@@ -55,20 +55,20 @@ class AppTests(unittest.TestCase):
         worker.final.connect(lambda *args: results.append(args))
         worker.partial.connect(lambda *args: partials.append(args))
         worker.failed.connect(errors.append)
-        with patch.object(sdk.translation, 'SpeechTranslationConfig') as config, \
+        with patch.object(sdk, 'SpeechConfig') as config, \
              patch.object(sdk.audio, 'AudioConfig'), \
              patch.object(sdk.PhraseListGrammar, 'from_recognizer'), \
-             patch.object(sdk.translation, 'TranslationRecognizer', FakeRecognizer):
+             patch.object(sdk, 'SpeechRecognizer', FakeRecognizer):
             worker.start()
             self.assertTrue(worker.wait(3000))
             APP.processEvents()
-            config.return_value.add_target_language.assert_called_once_with('en')
+            config.return_value.set_property.assert_any_call(sdk.PropertyId.SpeechServiceConnection_LanguageIdMode, 'Continuous')
             config.return_value.set_profanity.assert_called_once_with(sdk.ProfanityOption.Masked)
-        self.assertEqual(results, [('0', 'Completed translation.', '완료된 발화.')])
+        self.assertEqual(results, [('0', '', '완료된 발화.')])
         self.assertEqual(errors, [])
         self.assertIn('auto_detect_source_language_config', FakeRecognizer.instances[-1].kwargs)
         self.assertTrue(FakeRecognizer.instances[-1].stopped)
-        self.assertEqual(partials, [('0', 'Partial.', '중간 발화입니다')])
+        self.assertEqual(partials, [('0', '', '중간 발화입니다')])
         self.assertEqual(len(FakeRecognizer.instances[-1].recognizing.callbacks), 1)
         self.assertEqual(worker.key, '')
 
@@ -91,7 +91,7 @@ class AppTests(unittest.TestCase):
         worker = SpeechWorker('secret-value-test', 'koreacentral', 800)
         errors=[]
         worker.failed.connect(errors.append)
-        with patch.object(sdk.translation, 'SpeechTranslationConfig', side_effect=ValueError('secret-value-test')):
+        with patch.object(sdk, 'SpeechConfig', side_effect=ValueError('secret-value-test')):
             worker.start()
             self.assertTrue(worker.wait(3000))
             APP.processEvents()

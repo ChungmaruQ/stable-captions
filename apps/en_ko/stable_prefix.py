@@ -36,9 +36,12 @@ class StablePrefix:
     def __init__(self):self.states={};self.closed=deque(maxlen=128);self.opening=True
     def observe(self,uid,text,language,now):
         if uid in self.closed:return None
-        s=self.states.setdefault(uid,{'history':deque(maxlen=2),'committed':'','start':now,'last':now,'part':0})
+        s=self.states.setdefault(uid,{'history':deque(maxlen=128),'committed':'','start':now,'last':now,'part':0})
         history=s['history'];history.append((now,norm(text)))
-        if len(history)<2 or history[-1][0]-history[0][0]<.30:return None
+        # Retain a 300 ms stability window even when callbacks arrive faster.
+        # Compare every intervening hypothesis so a rewrite cannot pass unnoticed.
+        while len(history)>2 and history[1][0]<=now-.30:history.popleft()
+        if len(history)<2 or now-history[0][0]<.30:return None
         cut=aligned_boundary(s['committed'],text)
         if cut is None:return None
         common=history[0][1]
@@ -53,6 +56,22 @@ class StablePrefix:
                 piece=text[:end].strip();s['committed']=text[:end]
                 s['last']=now;s['part']+=1;self.opening=False
                 return (f'{uid}:early:{s["part"]}',piece,True)
+        # A complete first Korean statement needs no following two-word context.
+        # Incomplete/negated clauses still use the conservative normal path below.
+        if self.opening and not s['committed']:
+            whole=list(re.finditer(r'\S+',text))
+            for token in whole[1:22]:
+                if re.search(r'(습니다|입니다|됩니다|합니다|랍니다|바랍니다)[.!]?$' ,token.group()) and len(norm(text[:token.end()]))<=len(common):
+                    piece=text[:token.end()].strip();s['committed']=text[:token.end()]
+                    s['last']=now;s['part']+=1;self.opening=False
+                    return (f'{uid}:early:{s["part"]}',piece,True)
+        if self.opening and not s['committed'] and not any('가'<=c<='힣' for c in text) and not language.startswith('ko'):
+            from opening_units import english_opening_end
+            end=english_opening_end(text,len(common),norm)
+            if end is not None:
+                piece=text[:end].strip();s['committed']=text[:end]
+                s['last']=now;s['part']+=1;self.opening=False
+                return (f'{uid}:early:{s["part"]}',piece,False)
         spans=list(re.finditer(r'\S+',text));allowed=[]
         for token in spans[:-2]:
             boundary=len(norm(text[:token.end()]))
@@ -71,7 +90,7 @@ class StablePrefix:
             elif age>=3.0 and len(allowed)>=8:
                 candidates=[i+1 for i,x in enumerate(allowed[:16]) if i>=5 and x.group().endswith(('에서','하며','지만','때','위해','여러분','그리고'))]
                 chosen=candidates[-1] if candidates else min(12,len(allowed))
-        elif age>=2.5 and len(allowed)>=8:
+        elif age>=(1.2 if self.opening else 2.5) and len(allowed)>=8:
             limit=min(18,len(allowed));weak={'a','an','the','of','to','in','for','with','by','is','are','will','can','may','not','and','or','as','at','from','into','before','after','when','if','than','more','need','have','did','does','do','i','we','they','you','it','he','she','this','these','that','those','its','their'}
             connectors={'and','but','because','while','whereas','which','we','i','it','these'}
             candidates=[i for i in range(8,limit+1) if i<len(allowed) and allowed[i].group().lower() in connectors and allowed[i-1].group().lower() not in weak]

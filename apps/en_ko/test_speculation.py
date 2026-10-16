@@ -35,7 +35,7 @@ class ControllerSpecTests(unittest.TestCase):
  def test_inflight_exact_match_delivers_once_and_reset_blocks_stale(self):
   from test_app import APP
   from app import MainWindow
-  w=MainWindow(warmup=False);c=w.context;c.timer.stop();c.active=False;c.text='';c.use_documents.setChecked(False);c.use_translation.setChecked(True)
+  w=MainWindow(warmup=False);c=w.context;c.use_correction.setChecked(False);c.timer.stop();c.active=False;c.text='';c.use_documents.setChecked(False);c.use_translation.setChecked(True)
   source='학명은 생물을 명확하게 지칭합니다';ctx=c.context_key();c.speculation.observe('1',source[:-1],'baseline',ctx,0);c.speculation.observe('1',source,'baseline',ctx,.1)
   candidate=c.speculation.ready(.41);record=c.speculation.begin(candidate);got=[]
   c.translate('1','baseline',source,lambda *args:got.append(args),utterance='1')

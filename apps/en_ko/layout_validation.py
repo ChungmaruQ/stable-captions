@@ -44,19 +44,54 @@ def run(destination):
     canvas.show();w.overlay.show();enforce(w.overlay)
     def finish():
         image=w.overlay.grab().toImage();transparent=sum(image.pixelColor(x,y).alpha()==0 for x in range(0,image.width(),3) for y in range(0,image.height(),3));total=len(range(0,image.width(),3))*len(range(0,image.height(),3))
-        # Font density varies by display size. Compare the same glyphs with/without
-        # the filled background instead of requiring an arbitrary empty-area ratio.
-        w.caption_background.setCurrentIndex(2)
-        filled=w.overlay.grab().toImage()
-        removed=sum(image.pixelColor(x,y).alpha()==0 and filled.pixelColor(x,y).alpha()>0
-                    for x in range(0,image.width(),3) for y in range(0,image.height(),3))
-        w.caption_background.setCurrentIndex(0)
-        checks['background_absent']=removed>50
+        checks['background_absent']=transparent/total>.60
         native=state(w.overlay);checks['native_topmost']=(native.get('level',0)>0 and native.get('click_through',False)) if sys.platform=='darwin' else bool(w.overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         w.overlay.grab().save(str(out/'caption.png'));screen.grabWindow(0).save(str(out/'presentation.png'))
         w.show();w.grab().save(str(out/'settings.png'));w.hide()
+        if not dual:
+            current_height=w.overlay.height()
+            w.caption_mode.setCurrentIndex(3);w.overlay.reset_text()
+            w.overlay.advance_text('The previous caption stays above.');w.overlay.advance_text('The new caption appears below.')
+            w.overlay.animation.stop();w.overlay.finish_animation()
+            checks['two_row_history']=w.overlay.label.text()=='The previous caption stays above.\nThe new caption appears below.'
+            checks['two_row_height']=w.overlay.height()==current_height and w.overlay.label.slots==2
+            checks['two_row_dimming']=w.overlay.label.dim_history
+            w.overlay.grab().save(str(out/'two-row-english.png'))
+            w.output_language.setCurrentIndex(1)
+            w.overlay.advance_text('이전 자막은 위에 남습니다.');w.overlay.advance_text('새 자막은 아래에 나타납니다.')
+            w.overlay.animation.stop();w.overlay.finish_animation()
+            checks['two_row_korean']=w.overlay.label.text()=='이전 자막은 위에 남습니다.\n새 자막은 아래에 나타납니다.'
+            w.overlay.grab().save(str(out/'two-row-korean.png'))
+            w.show();w.grab().save(str(out/'two-row-settings.png'));w.hide()
+        if not dual:
+            for target,code in [(0,'english'),(1,'korean')]:
+                w.output_language.setCurrentIndex(target);w.overlay.reset_text();w.first_caption_shown=False
+                old_height=w.overlay.height()
+                w.show_startup_status('listening')
+                checks['listening_'+code]=w.overlay.label.text()==('듣는 중…' if target else 'Listening…') and not w.overlay.history_rows and w.overlay.height()==old_height
+                w.overlay.grab().save(str(out/('listening-'+code+'.png')))
+                w.show_startup_status('translating')
+                checks['translating_'+code]=w.overlay.label.text()==('번역 중…' if target else 'Translating…')
+                w.overlay.grab().save(str(out/('translating-'+code+'.png')))
+                actual='실제 첫 자막입니다.' if target else 'This is the first caption.'
+                w.deliver(w.session_number,'status-test-'+code,actual,'');w.tick()
+                checks['status_replaced_'+code]=w.overlay.label.text()==actual and not w.overlay.label.is_status and w.overlay.history_rows==[actual]
+                w.stop();checks['status_stop_'+code]=not w.overlay.label.text()
+        if not dual:
+            from english_casing import format_english_partial
+            w.output_language.setCurrentIndex(0);w.caption_mode.setCurrentIndex(3);w.overlay.reset_text()
+            first='We study natural products'
+            second=format_english_partial('because they may have biological activity',first)
+            w.overlay.advance_text(first);w.overlay.advance_text(second)
+            w.overlay.animation.stop();w.overlay.finish_animation()
+            checks['continuation_case']=w.overlay.label.text()==first+'\n'+second and second.startswith('because')
+            w.overlay.grab().save(str(out/'sentence-continuation.png'))
+            third=format_english_partial('next we measure DNA.','The first sentence ends.')
+            w.overlay.advance_text(third);w.overlay.animation.stop();w.overlay.finish_animation()
+            checks['new_sentence_case']=third.startswith('Next') and 'DNA' in w.overlay.label.text()
+            w.overlay.grab().save(str(out/'new-sentence.png'))
         w.overlay.reset_text();checks['clear']=w.overlay.label.text()==''
-        report={'pass':all(checks.values()),'packaged':bool(getattr(sys,'frozen',False)),'checks':checks,'native':native,'screen':rect.getRect(),'geometry':w.overlay.geometry().getRect(),'transparent_fraction':round(transparent/total,3),'background_removed_samples':removed,'source':'offline layout validation; no microphone or cloud API calls'}
+        report={'pass':all(checks.values()),'packaged':bool(getattr(sys,'frozen',False)),'checks':checks,'native':native,'screen':rect.getRect(),'geometry':w.overlay.geometry().getRect(),'transparent_fraction':round(transparent/total,3),'source':'offline layout validation; no microphone or cloud API calls'}
         (out/'layout-validation.json').write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)
         w.close();canvas.close();app.exit(0 if report['pass'] else 1)
     QTimer.singleShot(1000,finish)

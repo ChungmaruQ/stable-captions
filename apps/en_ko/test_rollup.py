@@ -33,3 +33,15 @@ class RollupTests(unittest.TestCase):
   w=MainWindow(warmup=False);self.assertEqual(w.caption_mode.currentIndex(),2)
   w.overlay.advance_text('Old');w.overlay.advance_text('New');w.clear()
   self.assertFalse(w.overlay.history_rows);w.close()
+
+ def test_two_row_history_is_lossless_and_keeps_two_line_height(self):
+  w=MainWindow(warmup=False);height=w.overlay.height();w.caption_mode.setCurrentIndex(3)
+  o=w.overlay;self.assertTrue(o.rollup);self.assertFalse(o.two_line);self.assertEqual(o.height(),height)
+  text='This sentence remains complete while its long content is divided into readable rows. '*12
+  pages=o.pages(text);self.assertEqual(' '.join(pages),' '.join(text.split()))
+  for page in pages:
+   o.advance_text(page);self.assertEqual(o.height(),height);self.assertEqual(o.label.slots,2)
+  o.animation.stop();o.finish_animation();self.assertEqual(o.label.entries,pages[-2:])
+  self.assertTrue(o.label.dim_history);o.reset_text();self.assertFalse(o.label.entries)
+  w.caption_mode.setCurrentIndex(1);self.assertEqual(o.label.slots,3)
+  w.caption_mode.setCurrentIndex(2);self.assertFalse(o.rollup);self.assertEqual(o.label.slots,2);w.close()

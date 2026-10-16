@@ -34,7 +34,7 @@ This repository must work from a fresh clone. Read README.md, docs/AZURE_SETUP.m
 - On Windows use Desktop/StableCaptions-Workspace/Project_Public for this public checkout. Resolve the known Desktop folder, preserve Archive and existing apps, never reorganize unrelated desktop files.
 - Run python scripts/check.py after functional changes; run scripts/build.py for a release. Successful tests alone do not prove the generated executable works.
 - Keep Windows x64/Python 3.12 and pinned direct dependencies unless a tested upgrade is necessary.
-- Model request parameter choice currently depends on deployment name starting with gpt-5. Preserve/document this contract or implement and test an explicit capability setting before changing it.
+- Model parameters depend on deployment names. en_ko recognizes gpt-6-luna / gpt-6-luna-* with reasoning_effort=none; both apps retain the gpt-5* minimal contract. Other names use legacy non-reasoning parameters. Preserve these app-specific contracts or implement and test an explicit capability setting before changing them.
 
 ## Publishing
 

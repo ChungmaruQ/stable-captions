@@ -30,8 +30,9 @@ class SpeechWorker(QThread):
     status = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, key, region, silence_ms, wav_path=None, realtime=False, early=True, prepared=None):
+    def __init__(self, key, region, silence_ms, wav_path=None, realtime=False, early=True, prepared=None, source_language='auto'):
         super().__init__()
+        self.source_language = source_language
         self.prepared_speech = prepared
         self.key, self.region = key, region
         self.silence_ms, self.wav_path = silence_ms, wav_path
@@ -66,7 +67,7 @@ class SpeechWorker(QThread):
         try:
             import azure.cognitiveservices.speech as speechsdk
             from speech_connection import make_config
-            config, language_config = make_config(self.key, self.region, self.silence_ms)
+            config, language_config = make_config(self.key, self.region, self.silence_ms, self.source_language)
             if self.prepared_speech:
                 audio = self.prepared_speech.audio
             elif self.realtime and self.wav_path:
@@ -77,8 +78,8 @@ class SpeechWorker(QThread):
             else:
                 audio = (speechsdk.audio.AudioConfig(filename=self.wav_path) if self.wav_path
                      else speechsdk.audio.AudioConfig(use_default_microphone=True))
-            recognizer = self.prepared_speech.recognizer if self.prepared_speech else speechsdk.translation.TranslationRecognizer(
-                translation_config=config, audio_config=audio,
+            recognizer = self.prepared_speech.recognizer if self.prepared_speech else speechsdk.SpeechRecognizer(
+                speech_config=config, audio_config=audio,
                 auto_detect_source_language_config=language_config)
 
             grammar=speechsdk.PhraseListGrammar.from_recognizer(recognizer)
@@ -88,25 +89,27 @@ class SpeechWorker(QThread):
                 if self.stop_event.is_set():return
                 self.activity.emit()
                 r=evt.result
-                language=r.properties.get(speechsdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult,'')
+                language=r.properties.get(speechsdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult,'') or self.source_language
                 if self.realtime and self.wav_path:
                     self.timing.emit({'partial_text':r.text,'language':language,'utterance':str(r.offset),'received':time.monotonic()})
                 if self.early:
+                    preceding=self.prefix.states.get(str(r.offset),{}).get('committed','')
                     item=self.prefix.observe(str(r.offset),r.text,language,time.monotonic())
                     if item:
                         rid,piece,korean=item
                         self.status.emit('자동 감지: 한국어 · 안정 구절 번역' if korean else '자동 감지: 영어 · 안정 구절 표시')
-                        english='' if korean else re.sub(r'\bi\b','I',piece[:1].upper()+piece[1:])
+                        from english_casing import format_english_partial
+                        english='' if korean else format_english_partial(piece,preceding)
                         self.timing.emit({'early':True,'received':time.monotonic(),'utterance':str(r.offset),'piece':piece,'rid':rid})
                         self.final.emit(rid,english,piece if korean else '')
                 if (language.startswith('ko') or any('가'<=c<='힣' for c in r.text)) and not self.prefix.states.get(str(r.offset),{}).get('committed'):
-                    self.partial.emit(str(r.offset),r.translations.get('en',''),r.text)
+                    self.partial.emit(str(r.offset),'',r.text)
 
             def recognized(evt):
                 if self.stop_event.is_set():
                     return
-                if evt.result.reason in (speechsdk.ResultReason.TranslatedSpeech, speechsdk.ResultReason.RecognizedSpeech):
-                    language = evt.result.properties.get(speechsdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult, '')
+                if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
+                    language = evt.result.properties.get(speechsdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult, '') or self.source_language
                     remaining,had_early,aligned=self.prefix.finish(str(evt.result.offset),evt.result.text)
                     if not aligned:
                         self.timing.emit({'alignment_failed':True});self.status.emit('인식 정정으로 일부 후속 자막을 연결하지 못했습니다.');return
@@ -116,7 +119,7 @@ class SpeechWorker(QThread):
                         english, source = remaining, ''
                         self.status.emit('자동 감지: 영어 · 영어 원문 자막')
                     else:
-                        english, source = ('' if had_early else evt.result.translations.get('en', '')), remaining
+                        english, source = '', remaining
                         self.status.emit('자동 감지: 한국어 · 영어 번역 자막')
                     if english.strip() or source.strip():
                         self.timing.emit({'utterance':str(evt.result.offset),'offset':evt.result.offset/10000000,'duration':evt.result.duration/10000000,'received':time.monotonic()})
@@ -148,6 +151,8 @@ class SpeechWorker(QThread):
                         if not chunk:break
                         push.write(chunk);frames+=len(chunk)//2
                         self.stop_event.wait(max(0,started+frames/wav.getframerate()-time.monotonic()))
+                    from diagnostics import record
+                    record('audio_submitted',stage='stt',audio_seconds=frames/wav.getframerate())
                     wav.close();push.close()
                 feeder=threading.Thread(target=feed,daemon=True);feeder.start()
             while not self.stop_event.wait(.2):self.apply_hints(grammar)
@@ -172,7 +177,10 @@ class CaptionLabel(QLabel):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setClipRect(QRectF(0, 6, self.width(), self.height()-12))
-        fm = QFontMetrics(self.font())
+        status = getattr(self, 'is_status', False)
+        font = QFont(self.font())
+        if status:font.setPointSize(max(14, int(font.pointSize()*.75)))
+        fm = QFontMetrics(font)
         entries = getattr(self, 'entries', [])
         slots = getattr(self, 'slots', 3)
         row = getattr(self, 'row_height', 100)
@@ -181,7 +189,8 @@ class CaptionLabel(QLabel):
             y = 6 + (slots-len(entries)+i+1-progress)*row
             age = len(entries)-1-i
             color = QColor('white') if age == 0 or not getattr(self, 'dim_history', True) else QColor('#c4ccd5' if age == 1 else '#939eac')
-            painter.setFont(self.font())
+            if status:color = QColor('#c4ccd5')
+            painter.setFont(font)
             for j, line in enumerate(text.splitlines()[:1]):
                 if not line.strip():continue
                 text_width = fm.horizontalAdvance(line)
@@ -192,7 +201,7 @@ class CaptionLabel(QLabel):
                 painter.drawRoundedRect(QRectF((self.width()-box_width)/2, y,
                                                box_width, row-2), 7, 7)
                 path = QPainterPath()
-                path.addText(x, y+fm.ascent()+j*(fm.lineSpacing()+6), self.font(), line)
+                path.addText(x, y+fm.ascent()+((row-fm.height())/2 if status else 0)+j*(fm.lineSpacing()+6), font, line)
                 painter.setPen(QPen(QColor(0, 0, 0, 220), 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
                 painter.setBrush(color)
                 painter.drawPath(path)
@@ -202,7 +211,7 @@ class CaptionLabel(QLabel):
 class Overlay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Stable Captions — 자막')
+        self.setWindowTitle('Stable Captions — 자막' + ' · 2026.10.16.5')
         self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
                             Qt.WindowType.WindowStaysOnTopHint |
                             Qt.WindowType.WindowDoesNotAcceptFocus |
@@ -216,10 +225,12 @@ class Overlay(QWidget):
         self.position = 0
         self.max_text_width = 800
         self.rollup = False
+        self.rollup_rows = 3
         self.two_line = False
         self.background_alpha = 0
         self.short_chunks = True
         self.current_text = ''
+        self.status_text = ''
         self.previous_text = ''
         self.history_rows = []
         self.animation = QVariantAnimation(self)
@@ -255,6 +266,7 @@ class Overlay(QWidget):
                                               self.max_text_width) for line in page.splitlines()]
 
     def advance_text(self, text):
+        self.status_text = ''
         had_previous = bool(self.current_text)
         self.previous_text = self.current_text
         self.history_rows = (self.history_rows+[text])[-4:]
@@ -265,10 +277,15 @@ class Overlay(QWidget):
             self.animation.start()
 
     def reset_text(self, text=''):
+        self.status_text = ''
         self.animation.stop()
         self.previous_text = ''
         self.history_rows = [text] if text else []
         self.current_text = text
+        self.render()
+
+    def show_status(self, text):
+        self.status_text = text if not self.current_text and not self.history_rows else ''
         self.render()
 
     def show_text(self, text):
@@ -282,7 +299,7 @@ class Overlay(QWidget):
         rect = self.screen_rect
         width = max(180, int(rect.width()*.88))
         self.max_text_width = width-48
-        slots = 2 if self.two_line else (3 if self.rollup else 1)
+        slots = 2 if self.two_line else (self.rollup_rows if self.rollup else 1)
         row_height = fm.lineSpacing()+4
         height = slots*row_height+12
         self.setGeometry(rect.x()+(rect.width()-width)//2,
@@ -294,6 +311,8 @@ class Overlay(QWidget):
         # shrinking letters or dropping words; retain the latest visible pages.
         entries = [line for text in source for page in self.pages(text) for line in page.splitlines()]
         if self.current_text and not source: entries = [line for page in self.pages(self.current_text) for line in page.splitlines()]
+        self.label.is_status = bool(self.status_text and not entries)
+        if self.label.is_status:entries = [self.status_text]
         self.label.entries = entries[-(slots+1):]
         self.label.slots = slots
         self.label.dim_history = self.rollup
@@ -309,16 +328,20 @@ class Overlay(QWidget):
 class MainWindow(QWidget):
     def __init__(self, warmup=True):
         super().__init__()
-        self.setWindowTitle('Stable Captions · 한국어/영어 → 영어·한국어 자막')
+        self.setWindowTitle('Stable Captions · 한국어/영어 → 영어·한국어 자막' + ' · 2026.10.16.5')
         self.resize(660, 740)
         self.settings = QSettings('LocalTools', 'StableCaptions')
         self.last_activity = 0.0
+        self.speech_connected = False
         self.worker = None
         self.closing = False
+        self.warmup_enabled = warmup
         self.prepared_speech = None
         self.preparation = None
         self.preparation_result = None
         self.session_number = 0
+        self.startup_status = ''
+        self.first_caption_shown = False
         self.queue = CaptionQueue()
         self.overlay = Overlay()
         from mac_overlay import install
@@ -357,9 +380,10 @@ class MainWindow(QWidget):
         self.caption_background.currentIndexChanged.connect(self.change_background)
         form.addRow('자막 배경', self.caption_background)
         self.caption_mode = QComboBox()
-        self.caption_mode.addItems(['현재 자막 한 줄', '프롬프터 · 최근 3줄 자막', '현재 문장 · 최대 2줄 (권장)'])
+        self.caption_mode.addItems(['현재 자막 한 줄', '프롬프터 · 최근 3줄 자막', '현재 문장 · 최대 2줄 (권장)', '프롬프터 · 최근 2줄 자막'])
         self.caption_mode.setCurrentIndex(2)
         self.caption_mode.currentIndexChanged.connect(self.change_caption_mode)
+        self.caption_mode.setToolTip('최근 2줄: 이전 자막은 위에 옅게, 새 자막은 아래에 선명하게 표시합니다. 긴 문장은 화면 폭에 맞춰 나누어 순서대로 올립니다.')
         form.addRow('자막 표시 방식', self.caption_mode)
         self.readable = QCheckBox('문장과 의미 단위를 유지해 줄 나누기')
         self.readable.setChecked(True)
@@ -384,7 +408,7 @@ class MainWindow(QWidget):
         form.addRow('발화 종료 대기', self.silence)
         root.addLayout(form)
         note = QLabel('마이크는 시스템 설정에서 선택 후 시작하세요. 연속 발화는 안정된 앞부분부터 표시합니다. 표시된 자막은 수정하지 않습니다.\n'
-                      '시작하면 음성이 Azure로 전송됩니다. 음성은 저장하지 않습니다. 본인의 Azure 계정으로 연결합니다. 공개 배포본에는 키가 없습니다.')
+                      '시작하면 음성이 Azure로 전송됩니다. 음성은 저장하지 않습니다. 개인 Azure 설정은 이 PC에만 저장됩니다.')
         note.setWordWrap(True)
         note.setStyleSheet('color: #475569; font-size: 12px;')
         root.addWidget(note)
@@ -439,6 +463,7 @@ class MainWindow(QWidget):
         context_button = QPushButton('슬라이드 화면 분석 · 맥락 번역 설정')
         context_button.clicked.connect(self.context.dialog.show)
         root.insertWidget(2, context_button)
+        root.insertWidget(3, self.context.summary)
         save_config = QPushButton('내 Azure 설정 저장')
         save_config.clicked.connect(self.save_azure_settings)
         root.addWidget(save_config)
@@ -473,19 +498,19 @@ class MainWindow(QWidget):
                 c.deployment.text().strip(), '안녕하세요.', '', '', [], '')
         self.ready_label.setText('사전 연결 준비 중 · 마이크는 아직 꺼져 있습니다')
         self.preparation = PreparationWorker(self.region.text().strip(), translate_with_context, args, self, key=self.key.text().strip(), silence_ms=self.silence.value())
+        self.preparation.speech_prepared.connect(self.accept_prepared_speech)
         self.preparation.completed.connect(self.prepared)
         self.preparation.finished.connect(self.preparation_finished)
         self.preparation.start()
 
+    def accept_prepared_speech(self, resource):
+        if self.closing or self.worker is not None or resource.signature != (self.key.text().strip(),self.region.text().strip(),self.silence.value(),'auto'):
+            resource.close()
+        else:
+            if self.prepared_speech:self.prepared_speech.close()
+            self.prepared_speech = resource
+
     def prepared(self, result):
-        if self.preparation is not None:
-            resource = self.preparation.speech
-            self.preparation.speech = None
-            if self.closing or self.worker is not None:
-                if resource:resource.close()
-            else:
-                if self.prepared_speech:self.prepared_speech.close()
-                self.prepared_speech = resource
         self.preparation_result = result
         if self.worker is None and not self.closing:
             self.ready_label.setText('사전 준비 완료 · 번역 시작을 누르세요' if all(result.values())
@@ -497,9 +522,24 @@ class MainWindow(QWidget):
         if self.closing:
             self.close()
 
+    def show_startup_status(self, status):
+        self.startup_status = status
+        phrases = {
+            'connecting': ('Connecting…', '연결 중…'),
+            'listening': ('Listening…', '듣는 중…'),
+            'translating': ('Translating…', '번역 중…'),
+            'error': ('Connection error', '연결 오류'),
+        }
+        message = phrases.get(status, ('',''))[self.output_language.currentData() == 'ko']
+        self.overlay.show_status(message if not self.first_caption_shown else '')
+
     def speech_ready(self, session):
         if session != self.session_number or self.worker is None or self.worker.stop_event.is_set():
             return
+        self.speech_connected = True
+        self.last_activity = time.monotonic()
+        if self.startup_status == 'connecting':self.show_startup_status('listening')
+        self.status_label.setText('음성 연결 완료 · 첫 발화를 기다립니다')
         self.ready_label.setText('준비 완료 · 말씀하세요')
         self.ready_label.setStyleSheet('color:#15803d;font-weight:700')
 
@@ -529,14 +569,16 @@ class MainWindow(QWidget):
         self.overlay.show_text(self.overlay.current_text)
 
     def change_caption_mode(self, index):
-        self.overlay.rollup = index == 1
+        self.overlay.rollup = index in (1, 3)
+        self.overlay.rollup_rows = 2 if index == 3 else 3
         self.overlay.two_line = index == 2
         self.overlay.show_text(self.overlay.current_text)
 
     def arrange(self, *_):
         screens = QApplication.screens()
         index = max(0, min(self.screen_choice.currentIndex(), len(screens) - 1))
-        self.overlay.rollup = self.caption_mode.currentIndex() == 1
+        self.overlay.rollup = self.caption_mode.currentIndex() in (1, 3)
+        self.overlay.rollup_rows = 2 if self.caption_mode.currentIndex() == 3 else 3
         self.overlay.two_line = self.caption_mode.currentIndex() == 2
         self.overlay.arrange(screens[index], self.font_size.value(), self.position.currentIndex())
 
@@ -575,7 +617,11 @@ class MainWindow(QWidget):
             return
         key, region = self.key.text().strip(), self.region.text().strip()
         if not key or not region:
-            QMessageBox.information(self, 'Azure 설정', '키와 지역을 입력하세요. Speech 리소스를 만든 지역 코드를 입력하세요.')
+            QMessageBox.information(self, 'Azure 설정', '본인의 Speech 키와 리소스의 실제 지역 코드를 입력하세요.')
+            return
+        model_ready=all(field.text().strip() for field in (self.context.model_key,self.context.model_endpoint,self.context.deployment))
+        if not model_ready:
+            QMessageBox.information(self, 'Azure 모델 설정', '한국어/영어 자동 입력의 번역을 위해 본인의 모델 엔드포인트·키·배포 이름을 입력하고 저장하세요.')
             return
         self.settings.setValue('region', region)
         self.context.reset()
@@ -585,13 +631,16 @@ class MainWindow(QWidget):
         self.overlay.reset_text('')
         self.arrange()
         self.overlay.setVisible(self.visible.isChecked())
+        self.first_caption_shown = False
+        self.speech_connected = False
+        self.show_startup_status('connecting')
         self.status_label.setText('Azure에 연결하는 중…')
         self.ready_label.setText('음성 연결 중 · 잠시 기다려주세요')
         self.ready_label.setStyleSheet('color:#92400e;font-weight:600')
         self.set_running(True)
         prepared = self.prepared_speech
         self.prepared_speech = None
-        if prepared and (wav_path or prepared.signature != (key, region, self.silence.value())):
+        if prepared and (wav_path or prepared.signature != (key, region, self.silence.value(), 'auto')):
             prepared.close();prepared = None
         self.worker = SpeechWorker(key, region, self.silence.value(), wav_path, realtime=realtime, prepared=prepared)
         self.worker.activity.connect(lambda: self.speech_activity(session))
@@ -609,20 +658,36 @@ class MainWindow(QWidget):
     def speech_activity(self, session):
         if session == self.session_number:
             self.last_activity = time.monotonic()
+            if self.startup_status == 'idle':
+                self.startup_status = ''
+                self.overlay.show_status('')
 
     def expire_idle_caption(self):
+        now=time.monotonic()
         busy = bool(self.queue.pending or self.context.pending or self.context.clauses.held)
-        if idle_due(time.monotonic(), self.last_activity, self.queue.shown_at, busy, self.queue.next_at):
+        if idle_due(now, self.last_activity, self.queue.shown_at, busy, self.queue.next_at):
             self.overlay.reset_text('')
             self.queue.shown_at = None
+        connected=(self.speech_connected and self.worker is not None and not self.worker.stop_event.is_set())
+        if connected and not busy and now-self.last_activity>=10.0 and not self.overlay.current_text and not self.overlay.history_rows:
+            if self.startup_status!='idle':
+                self.startup_status='idle'
+                self.overlay.show_status('[대기 중]')
+        elif not connected and self.startup_status=='idle':
+            self.startup_status=''
+            self.overlay.show_status('')
 
     def receive(self, session, rid, english, korean):
         if session != self.session_number:
             return
         self.speech_activity(session)
+        if not self.first_caption_shown and ((self.output_language.currentData() == 'en' and korean.strip()) or (self.output_language.currentData() == 'ko' and not korean.strip() and english.strip())):
+            self.show_startup_status('translating')
         self.context.translate(rid, english, korean, lambda r,e,k: self.deliver(session,r,e,k), utterance=rid)
 
     def deliver(self, session, rid, english, korean):
+        raw_source=getattr(english,'raw_source','')
+        corrected_source=getattr(english,'corrected_source','')
         if session != self.session_number:
             return
         if self.output_language.currentData() == 'en' and has_hangul(english):
@@ -638,7 +703,10 @@ class MainWindow(QWidget):
         if blocked and self.output_language.currentData() == 'ko':english = '[자막 생략]'
         if blocked:self.status_label.setText('표현 보호: 부적절하거나 가려진 표현이 포함된 자막을 생략했습니다.')
         if self.queue.accept(rid, english):
-            self.history.appendPlainText((korean + '\n' if korean else '[입력 발화]\n') + english + '\n')
+            source_record=(korean + '\n' if korean else '[입력 발화]\n')
+            if raw_source and corrected_source != raw_source:
+                source_record='[음성 인식] '+raw_source+'\n[문맥 교정] '+corrected_source+'\n'
+            self.history.appendPlainText(source_record + english + '\n')
 
     def tick(self):
         self.expire_idle_caption()
@@ -648,6 +716,8 @@ class MainWindow(QWidget):
             self.overlay.label.setFont(QFont('Segoe UI', self.font_size.value()))
             pages = self.overlay.pages(text)
             self.queue.pending.extendleft(reversed(pages[1:]))
+            self.first_caption_shown = True
+            self.startup_status = ''
             self.overlay.advance_text(pages[0])
             interval = (reading_interval(pages[0], max(1.0,self.hold.value())) if readable
                         else (min(self.hold.value(),1.0) if len(self.queue.pending)>2 else self.hold.value()))
@@ -655,6 +725,8 @@ class MainWindow(QWidget):
                 interval = max(self.hold.value(), min(3.0, 1.2 + len(pages[0].split()) * .08))
                 if len(self.queue.pending) > 2: interval = min(interval, 2.0)
             self.queue.next_at = time.monotonic()+interval
+        if self.startup_status == 'translating' and not (self.queue.pending or self.context.pending or self.context.clauses.held):
+            self.show_startup_status('listening' if self.worker is not None and not self.worker.stop_event.is_set() else '')
         count = len(self.queue.pending)
         message = f'표시 대기: {count}개'
         if count > 3:
@@ -663,6 +735,8 @@ class MainWindow(QWidget):
         self.backlog.setText(message)
 
     def stop(self):
+        self.speech_connected = False
+        self.startup_status = ''
         self.overlay.reset_text('')
         self.queue.reset()
         self.ready_label.setText('중지 중 · 말씀하세요 표시가 꺼졌습니다')
@@ -676,13 +750,18 @@ class MainWindow(QWidget):
             self.status_label.setText('마이크·Azure 연결을 중지하는 중…')
 
     def on_error(self, message):
+        self.speech_connected = False
+        if self.startup_status=='idle':self.startup_status='';self.overlay.show_status('')
+        if not self.first_caption_shown:self.show_startup_status('error')
         self.ready_label.setText('연결 오류 · 준비되지 않았습니다')
         self.ready_label.setStyleSheet('color:#b91c1c;font-weight:600')
         self.status_label.setText(message)
 
     def worker_done(self):
+        self.speech_connected = False
         self.worker.deleteLater()
         self.worker = None
+        if self.startup_status not in ('translating','error'):self.show_startup_status('')
         self.ready_label.setText('중지됨 · 다시 시작할 수 있습니다')
         self.ready_label.setStyleSheet('color:#475569;font-weight:600')
         self.set_running(False)
@@ -723,6 +802,8 @@ class MainWindow(QWidget):
 
 
 def main():
+    from diagnostics import configure
+    configure('EN-KO')
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     app.setFont(QFont('Segoe UI', 10))
@@ -739,11 +820,34 @@ def main():
 
 
 if __name__ == '__main__':
+    if len(sys.argv)==3 and sys.argv[1]=='--verify-windows-smoke':
+        from windows_smoke_validation import run
+        sys.exit(run(sys.argv[2]))
+    if len(sys.argv)==3 and sys.argv[1]=='--verify-native-capture':
+        from native_capture_validation import run
+        sys.exit(run(sys.argv[2]))
+    if len(sys.argv)==3 and sys.argv[1]=='--verify-live':
+        from live_validation import run
+        sys.exit(run(sys.argv[2]))
+    if len(sys.argv)==3 and sys.argv[1]=='--verify-diagnostics':
+        from diagnostic_validation import run
+        sys.exit(run(sys.argv[2]))
+    if '--screen-permission' in sys.argv:
+        import json
+        from screen_permission import screen_permission
+        print(json.dumps({'screen_permission':screen_permission()}),flush=True)
+        sys.exit(0)
+    if len(sys.argv) == 3 and sys.argv[1] == '--verify-first-caption':
+        from first_caption_validation import run
+        sys.exit(run(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == '--verify-korean':
         from korean_validation import run
         sys.exit(run(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == '--verify-generic':
         from generic_validation import run
+        sys.exit(run(sys.argv[2]))
+    if len(sys.argv) == 3 and sys.argv[1] == '--verify-correction':
+        from correction_validation import run
         sys.exit(run(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == '--verify-layout':
         from layout_validation import run

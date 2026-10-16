@@ -24,3 +24,8 @@ reports/
 *.docx
 *.pdf
 *.pptx
+
+# Local diagnostic journals and crash reports
+*.jsonl
+*.jsonl.*
+*.ips

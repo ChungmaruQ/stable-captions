@@ -14,18 +14,27 @@ def run(asset_dir):
  layout=QVBoxLayout(fixture);label=QLabel();label.setAlignment(Qt.AlignmentFlag.AlignCenter);layout.addWidget(label)
  w=MainWindow(warmup=False);w.screen_choice.setCurrentIndex(app.screens().index(screen));w.hide();c=w.context;c.use_documents.setChecked(False);c.use_speculation.setChecked(False);c.active=True
  cases=[('pear','이 배의 표면을 보세요.'),('boat','이 배의 표면을 보세요.'),('pear','이 물질은 아직 효과가 입증되지 않았습니다.')]
- report={'packaged':bool(getattr(sys,'frozen',False)),'screen':screen.geometry().getRect(),'cases':[],'image_payloads':[]}
+ fixture_only=(root/'fixture-only').exists()
+ if fixture_only:c.timer.stop()
+ report={'source':'fixture pixels; live screen capture not exercised' if fixture_only else 'live screen capture', 'packaged':bool(getattr(sys,'frozen',False)),'screen':screen.geometry().getRect(),'cases':[],'image_payloads':[]}
  original=context_ui.translate_with_context
- def model(*args):
+ def model(*args,**kwargs):
   report['image_payloads'].append({'image':len(args)>9 and bool(args[9]),'ocr_text':args[5]})
-  return original(*args)
+  return original(*args,**kwargs)
  context_ui.translate_with_context=model
+ try:
+  import recognition_correction
+  recognition_correction.translate_with_context=model
+ except ImportError:pass
  phase=[-1];waiting=[False];deadline=[0];done=[False]
  def next_case():
   phase[0]+=1
   if phase[0]>=len(cases):finish();return
   name,source=cases[phase[0]];c.reset_screen();c.reset()
   pix=QPixmap(str(root/(name+'.png')));label.setPixmap(pix.scaled(screen.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
+  if fixture_only:
+   from slide_image import encode_image
+   c.slide_image,_=encode_image(pix.toImage());c.image_revision+=1
   waiting[0]=False;deadline[0]=time.monotonic()+18
  def observe():
   if done[0]:return
@@ -41,7 +50,7 @@ def run(asset_dir):
  def finish():
   if done[0]:return
   done[0]=True;watch.stop()
-  rows=report['cases'];report['pass']=len(rows)==3 and all(r.get('image_used') for r in rows) and all(x['image'] and not x['ocr_text'] for x in report['image_payloads'])
+  rows=report['cases'];report['pass']=len(rows)==3 and all(r.get('image_used') for r in rows) and bool(report['image_payloads']) and all(x['image'] and not x['ocr_text'] for x in report['image_payloads'])
   if report['pass']:
    if 'JP-VN' in w.windowTitle():
     report['pass']=(any(x in rows[0]['translation'] for x in ['梨','果実','果物']) and any(x in rows[0]['translation'].lower() for x in ['lê','quả','trái']) and '船' in rows[1]['translation'] and any(x in rows[1]['translation'].lower() for x in ['thuyền','tàu']))

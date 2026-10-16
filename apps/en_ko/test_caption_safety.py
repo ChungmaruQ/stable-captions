@@ -18,10 +18,10 @@ class GuardTests(unittest.TestCase):
   w.tick()
   self.assertNotIn('asshole',w.history.toPlainText())
   self.assertNotIn('asshole',w.overlay.label.text())
-  self.assertIn(OMITTED,' '.join(w.overlay.label.text().split()))
+  self.assertIn(OMITTED,w.overlay.label.text())
   w.clear();w.context.use_translation.setChecked(False)
   w.receive(w.session_number,'fallback','This is shit.','')
-  w.tick();self.assertIn(OMITTED,' '.join(w.overlay.label.text().split()))
+  w.tick();self.assertIn(OMITTED,w.overlay.label.text())
   self.assertFalse(w.context.jobs);w.close()
  def test_medical_deliver_keeps_content(self):
   en='Breast cancer can affect sex hormone levels.'

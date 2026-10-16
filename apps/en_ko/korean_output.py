@@ -35,10 +35,8 @@ def translate_to_korean(endpoint, key, deployment, source, slide='', previous=()
         {'role': 'user', 'content': json.dumps({'current_utterance': source,
             'slide_reference': slide[:10000], 'previous_utterances': list(previous)[-3:]}, ensure_ascii=False)}]}
     attach_image(payload, slide_image)
-    if deployment.lower().startswith('gpt-5'):
-        payload.update(max_completion_tokens=1600, reasoning_effort='minimal')
-    else:
-        payload.update(max_tokens=500, temperature=0)
+    from model_options import generation_options
+    payload.update(generation_options(deployment,1600,500))
     result, _ = request_json(azure_endpoint(endpoint)+'/openai/v1/chat/completions', key, payload, timeout=4)
     choice = result.get('choices', [{}])[0]
     text = choice.get('message', {}).get('content', '')

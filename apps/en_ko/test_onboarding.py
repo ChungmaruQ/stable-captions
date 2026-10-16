@@ -45,4 +45,14 @@ class OnboardingTests(unittest.TestCase):
             window.save_azure_settings()
             message.assert_called_once(); prepare.assert_not_called()
 
+class STTModelConfigurationTests(unittest.TestCase):
+    def test_missing_model_does_not_start_stt(self):
+        window=MainWindow(warmup=False)
+        self.addCleanup(window.close)
+        window.key.setText('dummy-speech');window.region.setText('test-region')
+        window.context.model_key.clear()
+        with patch('app.QMessageBox.information') as message,patch('app.SpeechWorker') as worker:
+            window.start()
+        worker.assert_not_called();message.assert_called_once()
+
 if __name__ == '__main__': unittest.main()
